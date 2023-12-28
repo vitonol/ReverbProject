@@ -9,6 +9,73 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace ParamIDs
+{
+
+    inline constexpr auto size{"size"};
+    inline constexpr auto damp{"damp"};
+    inline constexpr auto width{"width"};
+    inline constexpr auto mix{"mix"};
+    inline constexpr auto freeze{"freeze"};
+
+}
+
+static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    auto percent = [](float val, int /*maxStringLength*/)
+    {
+        if (val < 10.f)
+            return juce::String(val, 2) + "%";
+        else if (val < 100.f)
+            return juce::String(val, 1) + "%";
+        else
+            return juce::String(val, 0) + "%";
+    };
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::size, 1},
+                                                           ParamIDs::size,
+                                                           juce::NormalisableRange<float>{0.f, 100.f, 0.01, 1.f},
+                                                           50.f,
+                                                           juce::String(),
+                                                           juce::AudioProcessorParameter::genericParameter,
+                                                           percent,
+                                                           nullptr));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::damp, 1},
+                                                           ParamIDs::damp,
+                                                           juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
+                                                           50.0f,
+                                                           juce::String(),
+                                                           juce::AudioProcessorParameter::genericParameter,
+                                                           percent,
+                                                           nullptr));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::width, 1},
+                                                           ParamIDs::width,
+                                                           juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
+                                                           50.0f,
+                                                           juce::String(),
+                                                           juce::AudioProcessorParameter::genericParameter,
+                                                           percent,
+                                                           nullptr));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::mix, 1},
+                                                           ParamIDs::mix,
+                                                           juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
+                                                           50.0f,
+                                                           juce::String(),
+                                                           juce::AudioProcessorParameter::genericParameter,
+                                                           percent,
+                                                           nullptr));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{ParamIDs::freeze, 1},
+                                                          ParamIDs::freeze,
+                                                          false));
+
+    return layout;
+}
+
 //==============================================================================
 ReverbProjectAudioProcessor::ReverbProjectAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -19,9 +86,28 @@ ReverbProjectAudioProcessor::ReverbProjectAudioProcessor()
 #endif
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)
 #endif
-      )
+                         ),
 #endif
+      apvts(*this, &undoManager, "Parameters", createParamLayout())
 {
+    auto storeFloatParam = [&apvts = this->apvts](auto &param, const auto &paramID)
+    {
+        param = dynamic_cast<juce::AudioParameterFloat *>(apvts.getParameter(paramID));
+        jassert(param != nullptr);
+    };
+
+    storeFloatParam(size, ParamIDs::size);
+    storeFloatParam(damp, ParamIDs::damp);
+    storeFloatParam(width, ParamIDs::width);
+    storeFloatParam(mix, ParamIDs::mix);
+
+    auto storeBoolParam = [&apvts = this->apvts](auto &param, const auto &paramID)
+    {
+        param = dynamic_cast<juce::AudioParameterBool *>(apvts.getParameter(paramID));
+        jassert(param != nullptr);
+    };
+
+    storeBoolParam(freeze, ParamIDs::freeze);
 }
 
 ReverbProjectAudioProcessor::~ReverbProjectAudioProcessor()
@@ -98,6 +184,7 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 
     // rvrb.setSampleRate(sampleRate);
     juce::dsp::ProcessSpec specs;
+
     specs.sampleRate = sampleRate;
     specs.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     specs.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
@@ -138,14 +225,14 @@ bool ReverbProjectAudioProcessor::isBusesLayoutSupported(const BusesLayout &layo
 
 void ReverbProjectAudioProcessor::updateReverbParams()
 {
-    // params.roomSize   = size->get() * 0.01f;
-    // params.damping    = damp->get() * 0.01f;
-    // params.width      = width->get() * 0.01f;
-    // params.wetLevel   = mix->get() * 0.01f;
-    // params.dryLevel   = 1.0f - mix->get() * 0.01f;
-    // params.freezeMode = freeze->get();
+    params.roomSize = size->get() * 0.01f;
+    params.damping = damp->get() * 0.01f;
+    params.width = width->get() * 0.01f;
+    params.wetLevel = mix->get() * 0.01f;
+    params.dryLevel = 1.0f - mix->get() * 0.01f;
+    params.freezeMode = freeze->get();
 
-    // rvrb.setParameters (params);
+    rvrb.setParameters(params);
 }
 
 void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages)
@@ -153,6 +240,8 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    updateReverbParams();
 
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
@@ -203,12 +292,16 @@ void ReverbProjectAudioProcessor::getStateInformation(juce::MemoryBlock &destDat
     // You should use this method to store your parameters in the memory block.
     // You could do that either as raw data, or use the XML or ValueTree classes
     // as intermediaries to make it easy to save and load complex data.
+    juce::MemoryOutputStream mos(destData, true);
+    apvts.state.writeToStream(mos);
 }
 
 void ReverbProjectAudioProcessor::setStateInformation(const void *data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+    auto valueTree = juce::ValueTree::readFromData(data, static_cast<size_t>(sizeInBytes));
+
+    if (valueTree.isValid())
+        apvts.replaceState(valueTree);
 }
 
 //==============================================================================

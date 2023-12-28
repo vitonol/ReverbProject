@@ -58,11 +58,22 @@ public:
   void setStateInformation(const void *data, int sizeInBytes) override;
 
 private:
+  juce::AudioProcessorValueTreeState apvts;
+
+  juce::AudioParameterFloat *size{nullptr};
+  juce::AudioParameterFloat *damp{nullptr};
+  juce::AudioParameterFloat *width{nullptr};
+  juce::AudioParameterFloat *mix{nullptr};
+  juce::AudioParameterBool *freeze{nullptr};
+
   void updateReverbParams();
 
   juce::dsp::Reverb::Parameters params;
   juce::dsp::Reverb rvrb;
-  std::vector<float> dnBuffer;
+
+  juce::UndoManager undoManager;
+
+  // std::vector<float> dnBuffer;
   //==============================================================================
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbProjectAudioProcessor)
 };
