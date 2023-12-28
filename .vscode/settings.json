@@ -1,5 +1,7 @@
 {
   "files.associations": {
-    "*.mm": "cpp"
+    "*.mm": "cpp",
+    "format": "cpp",
+    "xutility": "cpp"
   }
 }
