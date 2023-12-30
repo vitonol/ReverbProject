@@ -2,6 +2,7 @@
   "files.associations": {
     "*.mm": "cpp",
     "format": "cpp",
-    "xutility": "cpp"
+    "xutility": "cpp",
+    "memory": "cpp"
   }
 }

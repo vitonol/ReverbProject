@@ -73,6 +73,20 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
                                                           ParamIDs::freeze,
                                                           false));
 
+    juce::StringArray stringArray;
+    juce::String str;
+    // for (int i = 0; i < 3; i++)
+    // {
+    //     str << (1 + i);
+    //     // str << " some Kind Of Value";
+    //     stringArray.add(str);
+    // }
+    stringArray.add(" 1 ");
+    stringArray.add(" 2 ");
+    stringArray.add(" 3 ");
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>("WateverParam", "Watever Param", stringArray, 0));
+
     return layout;
 }
 
@@ -182,14 +196,14 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
 
-    // rvrb.setSampleRate(sampleRate);
     juce::dsp::ProcessSpec specs;
 
     specs.sampleRate = sampleRate;
     specs.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     specs.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
 
-    rvrb.prepare(specs);
+    // rvrb.prepare(specs);
+    r2.setSampleRate(specs.sampleRate);
 }
 
 void ReverbProjectAudioProcessor::releaseResources()
@@ -232,7 +246,8 @@ void ReverbProjectAudioProcessor::updateReverbParams()
     params.dryLevel = 1.0f - mix->get() * 0.01f;
     params.freezeMode = freeze->get();
 
-    rvrb.setParameters(params);
+    // rvrb.setParameters(params);
+    r2.setParameters(params);
 }
 
 void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages)
@@ -241,14 +256,41 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
+    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
+        buffer.clear(i, 0, buffer.getNumSamples());
     updateReverbParams();
 
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
-    rvrb.process(ctx);
+    // rvrb.process(ctx);
 
-    // for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-    //     buffer.clear(i, 0, buffer.getNumSamples());
+    const auto &inputBlock = ctx.getInputBlock();
+    auto &outputBlock = ctx.getOutputBlock();
+    const auto numInChannels = inputBlock.getNumChannels();
+    const auto numOutChannels = outputBlock.getNumChannels();
+    const auto numSamples = outputBlock.getNumSamples();
+
+    jassert(inputBlock.getNumSamples() == numSamples);
+
+    outputBlock.copyFrom(inputBlock);
+
+    if (ctx.isBypassed)
+        return;
+
+    if (numInChannels == 1 && numOutChannels == 1)
+    {
+        r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+    }
+    else if (numInChannels == 2 && numOutChannels == 2)
+    {
+        r2.processStereo(outputBlock.getChannelPointer(0),
+                         outputBlock.getChannelPointer(1),
+                         (int)numSamples);
+    }
+    else
+    {
+        jassertfalse; // invalid channel configuration
+    }
 
     // dnBuffer.resize(buffer.getNumChannels(), 0.f);
 
