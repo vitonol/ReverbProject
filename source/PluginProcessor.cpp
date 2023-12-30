@@ -258,39 +258,58 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
+
     updateReverbParams();
 
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
     // rvrb.process(ctx);
 
-    const auto &inputBlock = ctx.getInputBlock();
-    auto &outputBlock = ctx.getOutputBlock();
-    const auto numInChannels = inputBlock.getNumChannels();
-    const auto numOutChannels = outputBlock.getNumChannels();
-    const auto numSamples = outputBlock.getNumSamples();
+    // const auto &inputBlock = ctx.getInputBlock();
+    // auto &outputBlock = ctx.getOutputBlock();
+    // const auto numInChannels = inputBlock.getNumChannels();
+    // const auto numOutChannels = outputBlock.getNumChannels();
+    // const auto numSamples = outputBlock.getNumSamples();
 
-    jassert(inputBlock.getNumSamples() == numSamples);
+    // jassert(inputBlock.getNumSamples() == numSamples);
 
-    outputBlock.copyFrom(inputBlock);
-
-    if (ctx.isBypassed)
-        return;
-
-    if (numInChannels == 1 && numOutChannels == 1)
+    for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
-        r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+        auto *channelData = buffer.getWritePointer(channel);
+
+        r2.processMono(channelData, (int)buffer.getNumSamples());
+
+        // else if (numInChannels == 2 && numOutChannels == 2)
+        // {
+        //     r2.processStereo(outputBlock.getChannelPointer(0),
+        //                     outputBlock.getChannelPointer(1),
+        //                     (int)numSamples);
+        // }
+        // else
+        // {
+        //     jassertfalse; // invalid channel configuration
+        // }
     }
-    else if (numInChannels == 2 && numOutChannels == 2)
-    {
-        r2.processStereo(outputBlock.getChannelPointer(0),
-                         outputBlock.getChannelPointer(1),
-                         (int)numSamples);
-    }
-    else
-    {
-        jassertfalse; // invalid channel configuration
-    }
+
+    // outputBlock.copyFrom(inputBlock);
+
+    // if (ctx.isBypassed)
+    //     return;
+
+    // if (numInChannels == 1 && numOutChannels == 1)
+    // {
+    //     r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+    // }
+    // else if (numInChannels == 2 && numOutChannels == 2)
+    // {
+    //     r2.processStereo(outputBlock.getChannelPointer(0),
+    //                      outputBlock.getChannelPointer(1),
+    //                      (int)numSamples);
+    // }
+    // else
+    // {
+    //     jassertfalse; // invalid channel configuration
+    // }
 
     // dnBuffer.resize(buffer.getNumChannels(), 0.f);
 
