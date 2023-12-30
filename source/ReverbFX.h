@@ -1,237 +1,305 @@
 #pragma once
 
-#include <vector>
+#include <JuceHeader.h>
 
+// namespace juce
+// {
+
+//==============================================================================
+/**
+    Performs a simple reverb effect on a stream of audio data.
+
+    This is a simple stereo reverb, based on the technique and tunings used in FreeVerb.
+    Use setSampleRate() to prepare it, and then call processStereo() or processMono() to
+    apply the reverb to your audio data.
+
+    @see ReverbAudioSource
+
+    @tags{Audio}
+*/
 class ReverbFX
 {
+public:
+    //==============================================================================
+    ReverbFX()
+    {
+        setParameters(Parameters());
+        setSampleRate(44100.0);
+    }
+
+    //==============================================================================
+    /** Holds the parameters being used by a Reverb object. */
+    struct Parameters
+    {
+        float roomSize = 0.5f;   /**< Room size, 0 to 1.0, where 1.0 is big, 0 is small. */
+        float damping = 0.5f;    /**< Damping, 0 to 1.0, where 0 is not damped, 1.0 is fully damped. */
+        float wetLevel = 0.33f;  /**< Wet level, 0 to 1.0 */
+        float dryLevel = 0.4f;   /**< Dry level, 0 to 1.0 */
+        float width = 1.0f;      /**< Reverb width, 0 to 1.0, where 1.0 is very wide. */
+        float freezeMode = 0.0f; /**< Freeze mode - values < 0.5 are "normal" mode, values > 0.5
+                                      put the reverb into a continuous feedback loop. */
+    };
+
+    //==============================================================================
+    /** Returns the reverb's current parameters. */
+    const Parameters &getParameters() const noexcept { return parameters; }
+
+    /** Applies a new set of parameters to the reverb.
+        Note that this doesn't attempt to lock the reverb, so if you call this in parallel with
+        the process method, you may get artifacts.
+    */
+    void setParameters(const Parameters &newParams)
+    {
+        const float wetScaleFactor = 3.0f;
+        const float dryScaleFactor = 2.0f;
+
+        const float wet = newParams.wetLevel * wetScaleFactor;
+        dryGain.setTargetValue(newParams.dryLevel * dryScaleFactor);
+        wetGain1.setTargetValue(0.5f * wet * (1.0f + newParams.width));
+        wetGain2.setTargetValue(0.5f * wet * (1.0f - newParams.width));
+
+        gain = isFrozen(newParams.freezeMode) ? 0.0f : 0.015f;
+        parameters = newParams;
+        updateDamping();
+    }
+
+    //==============================================================================
+    /** Sets the sample rate that will be used for the reverb.
+        You must call this before the process methods, in order to tell it the correct sample rate.
+    */
+    void setSampleRate(const double sampleRate)
+    {
+        jassert(sampleRate > 0);
+
+        static const short combTunings[] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}; // (at 44100Hz)
+        static const short allPassTunings[] = {556, 441, 341, 225};
+        const int stereoSpread = 23;
+        const int intSampleRate = (int)sampleRate;
+
+        for (int i = 0; i < numCombs; ++i)
+        {
+            comb[0][i].setSize((intSampleRate * combTunings[i]) / 44100);
+            comb[1][i].setSize((intSampleRate * (combTunings[i] + stereoSpread)) / 44100);
+        }
+
+        for (int i = 0; i < numAllPasses; ++i)
+        {
+            allPass[0][i].setSize((intSampleRate * allPassTunings[i]) / 44100);
+            allPass[1][i].setSize((intSampleRate * (allPassTunings[i] + stereoSpread)) / 44100);
+        }
+
+        const double smoothTime = 0.01;
+        damping.reset(sampleRate, smoothTime);
+        feedback.reset(sampleRate, smoothTime);
+        dryGain.reset(sampleRate, smoothTime);
+        wetGain1.reset(sampleRate, smoothTime);
+        wetGain2.reset(sampleRate, smoothTime);
+    }
+
+    /** Clears the reverb's buffers. */
+    void reset()
+    {
+        for (int j = 0; j < numChannels; ++j)
+        {
+            for (int i = 0; i < numCombs; ++i)
+                comb[j][i].clear();
+
+            for (int i = 0; i < numAllPasses; ++i)
+                allPass[j][i].clear();
+        }
+    }
+
+    //==============================================================================
+    /** Applies the reverb to two stereo channels of audio data. */
+    void processStereo(float *const left, float *const right, const int numSamples) noexcept
+    {
+        JUCE_BEGIN_IGNORE_WARNINGS_MSVC(6011)
+        jassert(left != nullptr && right != nullptr);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
+            const float input = (left[i] + right[i]) * gain;
+            float outL = 0, outR = 0;
+
+            const float damp = damping.getNextValue();
+            const float feedbck = feedback.getNextValue();
+
+            for (int j = 0; j < numCombs; ++j) // accumulate the comb filters in parallel
+            {
+                outL += comb[0][j].process(input, damp, feedbck);
+                outR += comb[1][j].process(input, damp, feedbck);
+            }
+
+            for (int j = 0; j < numAllPasses; ++j) // run the allpass filters in series
+            {
+                outL = allPass[0][j].process(outL);
+                outR = allPass[1][j].process(outR);
+            }
+
+            const float dry = dryGain.getNextValue();
+            const float wet1 = wetGain1.getNextValue();
+            const float wet2 = wetGain2.getNextValue();
+
+            left[i] = outL * wet1 + outR * wet2 + left[i] * dry;
+            right[i] = outR * wet1 + outL * wet2 + right[i] * dry;
+        }
+        JUCE_END_IGNORE_WARNINGS_MSVC
+    }
+
+    /** Applies the reverb to a single mono channel of audio data. */
+    void processMono(float *const samples, const int numSamples) noexcept
+    {
+        JUCE_BEGIN_IGNORE_WARNINGS_MSVC(6011)
+        jassert(samples != nullptr);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float input = samples[i] * gain;
+            float output = 0;
+
+            const float damp = damping.getNextValue();
+            const float feedbck = feedback.getNextValue();
+
+            for (int j = 0; j < numCombs; ++j) // accumulate the comb filters in parallel
+                output += comb[0][j].process(input, damp, feedbck);
+
+            for (int j = 0; j < numAllPasses; ++j) // run the allpass filters in series
+                output = allPass[0][j].process(output);
+
+            const float dry = dryGain.getNextValue();
+            const float wet1 = wetGain1.getNextValue();
+
+            samples[i] = output * wet1 + samples[i] * dry;
+        }
+        JUCE_END_IGNORE_WARNINGS_MSVC
+    }
+
+private:
+    //==============================================================================
+    static bool isFrozen(const float freezeMode) noexcept { return freezeMode >= 0.5f; }
+
+    void updateDamping() noexcept
+    {
+        const float roomScaleFactor = 0.28f;
+        const float roomOffset = 0.7f;
+        const float dampScaleFactor = 0.4f;
+
+        if (isFrozen(parameters.freezeMode))
+            setDamping(0.0f, 1.0f);
+        else
+            setDamping(parameters.damping * dampScaleFactor,
+                       parameters.roomSize * roomScaleFactor + roomOffset);
+    }
+
+    void setDamping(const float dampingToUse, const float roomSizeToUse) noexcept
+    {
+        damping.setTargetValue(dampingToUse);
+        feedback.setTargetValue(roomSizeToUse);
+    }
+
+    //==============================================================================
+    class CombFilter
+    {
+    public:
+        CombFilter() noexcept {}
+
+        void setSize(const int size)
+        {
+            if (size != bufferSize)
+            {
+                bufferIndex = 0;
+                buffer.malloc(size);
+                bufferSize = size;
+            }
+
+            clear();
+        }
+
+        void clear() noexcept
+        {
+            last = 0;
+            buffer.clear((size_t)bufferSize);
+        }
+
+        float process(const float input, const float damp, const float feedbackLevel) noexcept
+        {
+            const float output = buffer[bufferIndex];
+            last = (output * (1.0f - damp)) + (last * damp);
+            JUCE_UNDENORMALISE(last);
+
+            float temp = input + (last * feedbackLevel);
+            JUCE_UNDENORMALISE(temp);
+            buffer[bufferIndex] = temp;
+            bufferIndex = (bufferIndex + 1) % bufferSize;
+            return output;
+        }
+
+    private:
+        HeapBlock<float> buffer;
+        int bufferSize = 0, bufferIndex = 0;
+        float last = 0.0f;
+
+        JUCE_DECLARE_NON_COPYABLE(CombFilter)
+    };
+
+    //==============================================================================
+    class AllPassFilter
+    {
+    public:
+        AllPassFilter() noexcept {}
+
+        void setSize(const int size)
+        {
+            if (size != bufferSize)
+            {
+                bufferIndex = 0;
+                buffer.malloc(size);
+                bufferSize = size;
+            }
+
+            clear();
+        }
+
+        void clear() noexcept
+        {
+            buffer.clear((size_t)bufferSize);
+        }
+
+        float process(const float input) noexcept
+        {
+            const float bufferedValue = buffer[bufferIndex];
+            float temp = input + (bufferedValue * 0.5f);
+            JUCE_UNDENORMALISE(temp);
+            buffer[bufferIndex] = temp;
+            bufferIndex = (bufferIndex + 1) % bufferSize;
+            return bufferedValue - input;
+        }
+
+    private:
+        HeapBlock<float> buffer;
+        int bufferSize = 0, bufferIndex = 0;
+
+        JUCE_DECLARE_NON_COPYABLE(AllPassFilter)
+    };
+
+    //==============================================================================
+    enum
+    {
+        numCombs = 8,
+        numAllPasses = 4,
+        numChannels = 2
+    };
+
+    Parameters parameters;
+    float gain;
+
+    CombFilter comb[numChannels][numCombs];
+    AllPassFilter allPass[numChannels][numAllPasses];
+
+    SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbFX)
 };
 
-/*
-////////////////////////////////////////////////////////////////////////////////
-                     Inspired by Let's Write A Reverb, presented at ADC 2021.
-////////////////////////////////////////////////////////////////////////////////
-*/
-
-// template<int channels=8>
-// struct MultiChannelFeedback {
-// 	using Array = std::array<double, channels>;
-
-// 	double delayMs = 150;
-// 	double decayGain = 0.85;
-
-// 	std::array<int, channels> delaySamples;
-// 	std::array<Delay, channels> delays;
-
-// 	void configure(double sampleRate) {
-// 		double delaySamplesBase = delayMs*0.001*sampleRate;
-// 		for (int c = 0; c < channels; ++c) {
-// 			// Distribute delay times exponentially between delayMs and 2*delayMs
-// 			double r = c*1.0/channels;
-// 			delaySamples[c] = std::pow(2, r)*delaySamplesBase;
-
-// 			delays[c].resize(delaySamples[c] + 1);
-// 			delays[c].reset();
-// 		}
-// 	}
-
-// 	Array process(Array input) {
-// 		Array delayed;
-// 		for (int c = 0; c < channels; ++c) {
-// 			delayed[c] = delays[c].read(delaySamples[c]);
-// 		}
-
-// 		for (int c = 0; c < channels; ++c) {
-// 			double sum = input[c] + delayed[c]*decayGain;
-// 			delays[c].write(sum);
-// 		}
-
-// 		return delayed;
-// 	}
-// };
-
-// template<int channels=8>
-// struct MultiChannelMixedFeedback {
-// 	using Array = std::array<double, channels>;
-// 	double delayMs = 150;
-// 	double decayGain = 0.85;
-
-// 	std::array<int, channels> delaySamples;
-// 	std::array<Delay, channels> delays;
-
-// 	void configure(double sampleRate) {
-// 		double delaySamplesBase = delayMs*0.001*sampleRate;
-// 		for (int c = 0; c < channels; ++c) {
-// 			double r = c*1.0/channels;
-// 			delaySamples[c] = std::pow(2, r)*delaySamplesBase;
-// 			delays[c].resize(delaySamples[c] + 1);
-// 			delays[c].reset();
-// 		}
-// 	}
-
-// 	Array process(Array input) {
-// 		Array delayed;
-// 		for (int c = 0; c < channels; ++c) {
-// 			delayed[c] = delays[c].read(delaySamples[c]);
-// 		}
-
-// 		// Mix using a Householder matrix
-// 		Array mixed = delayed;
-// 		Householder<double, channels>::inPlace(mixed.data());
-
-// 		for (int c = 0; c < channels; ++c) {
-// 			double sum = input[c] + mixed[c]*decayGain;
-// 			delays[c].write(sum);
-// 		}
-
-// 		return delayed;
-// 	}
-// };
-
-// template<int channels=8>
-// struct DiffusionStep {
-// 	using Array = std::array<double, channels>;
-// 	double delayMsRange = 50;
-
-// 	std::array<int, channels> delaySamples;
-// 	std::array<Delay, channels> delays;
-// 	std::array<bool, channels> flipPolarity;
-
-// 	void configure(double sampleRate) {
-// 		double delaySamplesRange = delayMsRange*0.001*sampleRate;
-// 		for (int c = 0; c < channels; ++c) {
-// 			double rangeLow = delaySamplesRange*c/channels;
-// 			double rangeHigh = delaySamplesRange*(c + 1)/channels;
-// 			delaySamples[c] = randomInRange(rangeLow, rangeHigh);
-// 			delays[c].resize(delaySamples[c] + 1);
-// 			delays[c].reset();
-// 			flipPolarity[c] = rand()%2;
-// 		}
-// 	}
-
-// 	Array process(Array input) {
-// 		// Delay
-// 		Array delayed;
-// 		for (int c = 0; c < channels; ++c) {
-// 			delays[c].write(input[c]);
-// 			delayed[c] = delays[c].read(delaySamples[c]);
-// 		}
-
-// 		// Mix with a Hadamard matrix
-// 		Array mixed = delayed;
-// 		Hadamard<double, channels>::inPlace(mixed.data());
-
-// 		// Flip some polarities
-// 		for (int c = 0; c < channels; ++c) {
-// 			if (flipPolarity[c]) mixed[c] *= -1;
-// 		}
-
-// 		return mixed;
-// 	}
-// };
-
-// template <int channels = 8, int stepCount = 4>
-// struct DiffuserEqualLengths
-// {
-//   using Array = std::array<double, channels>;
-
-//   using Step = DiffusionStep<channels>;
-//   std::array<Step, stepCount> steps;
-
-//   DiffuserEqualLengths(double totalDiffusionMs)
-//   {
-//     for (auto &step : steps)
-//     {
-//       step.delayMsRange = totalDiffusionMs / stepCount;
-//     }
-//   }
-
-//   void configure(double sampleRate)
-//   {
-//     for (auto &step : steps)
-//       step.configure(sampleRate);
-//   }
-
-//   Array process(Array samples)
-//   {
-//     for (auto &step : steps)
-//     {
-//       samples = step.process(samples);
-//     }
-//     return samples;
-//   }
-// };
-
-// template <int channels = 8, int stepCount = 4>
-// struct DiffuserHalfLengths
-// {
-//   using Array = std::array<double, channels>;
-
-//   using Step = DiffusionStep<channels>;
-//   std::array<Step, stepCount> steps;
-
-//   DiffuserHalfLengths(double diffusionMs)
-//   {
-//     for (auto &step : steps)
-//     {
-//       diffusionMs *= 0.5;
-//       step.delayMsRange = diffusionMs;
-//     }
-//   }
-
-//   void configure(double sampleRate)
-//   {
-//     for (auto &step : steps)
-//       step.configure(sampleRate);
-//   }
-
-//   Array process(Array samples)
-//   {
-//     for (auto &step : steps)
-//     {
-//       samples = step.process(samples);
-//     }
-//     return samples;
-//   }
-// };
-
-// template <int channels = 8, int diffusionSteps = 4>
-// struct BasicReverb
-// {
-//   using Array = std::array<double, channels>;
-
-//   MultiChannelMixedFeedback<channels> feedback;
-//   DiffuserHalfLengths<channels, diffusionSteps> diffuser;
-//   double dry, wet;
-
-//   BasicReverb(double roomSizeMs, double rt60, double dry = 0, double wet = 1) : diffuser(roomSizeMs), dry(dry), wet(wet)
-//   {
-//     feedback.delayMs = roomSizeMs;
-
-//     // How long does our signal take to go around the feedback loop?
-//     double typicalLoopMs = roomSizeMs * 1.5;
-//     // How many times will it do that during our RT60 period?
-//     double loopsPerRt60 = rt60 / (typicalLoopMs * 0.001);
-//     // This tells us how many dB to reduce per loop
-//     double dbPerCycle = -60 / loopsPerRt60;
-
-//     feedback.decayGain = std::pow(10, dbPerCycle * 0.05);
-//   }
-
-//   void configure(double sampleRate)
-//   {
-//     feedback.configure(sampleRate);
-//     diffuser.configure(sampleRate);
-//   }
-
-//   Array process(Array input)
-//   {
-//     Array diffuse = diffuser.process(input);
-//     Array longLasting = feedback.process(diffuse);
-//     Array output;
-//     for (int c = 0; c < channels; ++c)
-//     {
-//       output[c] = dry * input[c] + wet * longLasting[c];
-//     }
-//     return output;
-//   }
-// };
+// } // namespace juce

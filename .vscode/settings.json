@@ -3,6 +3,7 @@
     "*.mm": "cpp",
     "format": "cpp",
     "xutility": "cpp",
-    "memory": "cpp"
+    "memory": "cpp",
+    "vector": "cpp"
   }
 }

@@ -35,7 +35,7 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::size, 1},
                                                            ParamIDs::size,
-                                                           juce::NormalisableRange<float>{0.f, 100.f, 0.01, 1.f},
+                                                           juce::NormalisableRange<float>{0.f, 100.f, 0.01f, 1.f},
                                                            50.f,
                                                            juce::String(),
                                                            juce::AudioProcessorParameter::genericParameter,
@@ -203,8 +203,14 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     specs.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     specs.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
 
-    // r1.prepare(specs);
+#if MYVERS
+    r3.setSampleRate(sampleRate);
+
+#elif JUCEVERS
     r2.setSampleRate(specs.sampleRate);
+#endif
+
+    // r1.prepare(specs);
 }
 
 void ReverbProjectAudioProcessor::releaseResources()
@@ -247,8 +253,13 @@ void ReverbProjectAudioProcessor::updateReverbParams()
     params.dryLevel = 1.0f - mix->get() * 0.01f;
     params.freezeMode = freeze->get();
 
-    // r1.setParameters(params);
+#if MYVERS
+    r3.setParameters(params);
+#elif JUCEVERS
     r2.setParameters(params);
+#endif
+
+    // r1.setParameters(params);
 }
 
 // Settings getSettings(juce::AudioProcessorValueTreeState &vts)
@@ -291,13 +302,23 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
 
     if (numInChannels == 1 && numOutChannels == 1)
     {
-        r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+#if MYVERS
+        r3.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+#elif JUCEVERS
+        // r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
+#endif
     }
     else if (numInChannels == 2 && numOutChannels == 2)
     {
-        r2.processStereo(outputBlock.getChannelPointer(0),
+#if MYVERS
+        r3.processStereo(outputBlock.getChannelPointer(0),
                          outputBlock.getChannelPointer(1),
                          (int)numSamples);
+#elif JUCEVERS
+        // r2.processStereo(outputBlock.getChannelPointer(0),
+        //                  outputBlock.getChannelPointer(1),
+        //                  (int)numSamples);
+#endif
     }
     else
     {

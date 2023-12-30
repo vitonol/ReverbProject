@@ -8,11 +8,16 @@
 
 #pragma once
 
-// #include <JuceHeader.h>
-#include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_dsp/juce_dsp.h>
-#include <juce_audio_basics/juce_audio_basics.h>
-#include <juce_gui_basics/juce_gui_basics.h>
+#include <JuceHeader.h>
+// #include <juce_audio_processors/juce_audio_processors.h>
+// #include <juce_dsp/juce_dsp.h>
+// #include <juce_audio_basics/juce_audio_basics.h>
+// #include <juce_gui_basics/juce_gui_basics.h>
+
+#include "ReverbFX.h"
+
+#define MYVERS 1
+#define JUCEVERS 0
 
 // enum EfxOption
 // {
@@ -83,10 +88,17 @@ private:
 
   void updateReverbParams();
 
-  juce::dsp::Reverb::Parameters params;
-  // juce::dsp::Reverb r1;
+#if MYVERS
+  using Parameters = ReverbFX::Parameters;
+  Parameters params;
+  ReverbFX r3;
+#elif JUCEVERS
 
+  juce::dsp::Reverb::Parameters params;
   juce::Reverb r2;
+#endif
+
+  // juce::dsp::Reverb r1;
 
   juce::UndoManager undoManager;
 

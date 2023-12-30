@@ -18,13 +18,14 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(
     ReverbProject
-    PLUGIN_MANUFACTURER_CODE Vtn
-    PLUGIN_MANUFACTURER_CODE Vtn01
+    PLUGIN_MANUFACTURER_CODE VTNL
     FORMATS VST3 Standalone
     COMPANY_NAME "vitonol"
     PRODUCT_NAME "ReverbProject"
     VERSION "1.0.0" 
 )
+
+juce_generate_juce_header(ReverbProject)
 
 add_subdirectory(source)
 
