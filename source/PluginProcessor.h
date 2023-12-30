@@ -14,6 +14,19 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+// enum EfxOption
+// {
+//   R1,
+//   R2
+// };
+
+// struct Settings
+// {
+//   EfxOption R{R1};
+// };
+
+// Settings getSettings(juce::AudioProcessorValueTreeState &vts);
+
 //==============================================================================
 /**
  */
@@ -58,6 +71,8 @@ public:
   void setStateInformation(const void *data, int sizeInBytes) override;
 
 private:
+  void ReloadFX();
+
   juce::AudioProcessorValueTreeState apvts;
 
   juce::AudioParameterFloat *size{nullptr};
@@ -69,7 +84,7 @@ private:
   void updateReverbParams();
 
   juce::dsp::Reverb::Parameters params;
-  // juce::dsp::Reverb rvrb;
+  // juce::dsp::Reverb r1;
 
   juce::Reverb r2;
 

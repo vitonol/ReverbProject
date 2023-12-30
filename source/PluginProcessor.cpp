@@ -81,11 +81,12 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
     //     // str << " some Kind Of Value";
     //     stringArray.add(str);
     // }
-    stringArray.add(" 1 ");
-    stringArray.add(" 2 ");
-    stringArray.add(" 3 ");
 
-    layout.add(std::make_unique<juce::AudioParameterChoice>("WateverParam", "Watever Param", stringArray, 0));
+    stringArray.add(" juce::dsp::Reverb ");
+    stringArray.add(" juce::Reverb ");
+    // stringArray.add(" 3 ");
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>("Reverb Version", "Reverb Version", stringArray, 0));
 
     return layout;
 }
@@ -202,7 +203,7 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     specs.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     specs.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
 
-    // rvrb.prepare(specs);
+    // r1.prepare(specs);
     r2.setSampleRate(specs.sampleRate);
 }
 
@@ -246,9 +247,18 @@ void ReverbProjectAudioProcessor::updateReverbParams()
     params.dryLevel = 1.0f - mix->get() * 0.01f;
     params.freezeMode = freeze->get();
 
-    // rvrb.setParameters(params);
+    // r1.setParameters(params);
     r2.setParameters(params);
 }
+
+// Settings getSettings(juce::AudioProcessorValueTreeState &vts)
+// {
+//     Settings settings;
+
+//     settings.R = static_cast<EfxOption>(vts.getRawParameterValue("Reverb Version")->load());
+
+//     return settings;
+// }
 
 void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages)
 {
@@ -263,76 +273,36 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
 
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
-    // rvrb.process(ctx);
 
-    // const auto &inputBlock = ctx.getInputBlock();
-    // auto &outputBlock = ctx.getOutputBlock();
-    // const auto numInChannels = inputBlock.getNumChannels();
-    // const auto numOutChannels = outputBlock.getNumChannels();
-    // const auto numSamples = outputBlock.getNumSamples();
+    // r1.process(ctx);
 
-    // jassert(inputBlock.getNumSamples() == numSamples);
+    const auto &inputBlock = ctx.getInputBlock();
+    auto &outputBlock = ctx.getOutputBlock();
+    const auto numInChannels = inputBlock.getNumChannels();
+    const auto numOutChannels = outputBlock.getNumChannels();
+    const auto numSamples = outputBlock.getNumSamples();
 
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    jassert(inputBlock.getNumSamples() == numSamples);
+
+    outputBlock.copyFrom(inputBlock);
+
+    if (ctx.isBypassed)
+        return;
+
+    if (numInChannels == 1 && numOutChannels == 1)
     {
-        auto *channelData = buffer.getWritePointer(channel);
-
-        r2.processMono(channelData, (int)buffer.getNumSamples());
-
-        // else if (numInChannels == 2 && numOutChannels == 2)
-        // {
-        //     r2.processStereo(outputBlock.getChannelPointer(0),
-        //                     outputBlock.getChannelPointer(1),
-        //                     (int)numSamples);
-        // }
-        // else
-        // {
-        //     jassertfalse; // invalid channel configuration
-        // }
+        r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
     }
-
-    // outputBlock.copyFrom(inputBlock);
-
-    // if (ctx.isBypassed)
-    //     return;
-
-    // if (numInChannels == 1 && numOutChannels == 1)
-    // {
-    //     r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
-    // }
-    // else if (numInChannels == 2 && numOutChannels == 2)
-    // {
-    //     r2.processStereo(outputBlock.getChannelPointer(0),
-    //                      outputBlock.getChannelPointer(1),
-    //                      (int)numSamples);
-    // }
-    // else
-    // {
-    //     jassertfalse; // invalid channel configuration
-    // }
-
-    // dnBuffer.resize(buffer.getNumChannels(), 0.f);
-
-    // for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    // {
-    //     auto *channelData = buffer.getWritePointer(channel);
-    //     rvrb.processStereo(&channelData[0], &channelData[1], buffer.getNumSamples());
-
-    //     for (auto i = 0; i < buffer.getNumSamples(); i++)
-    //     {
-    //         const auto inputSample = channelData[i];
-
-    //         // const auto proccessedSample = rvrb.processSample(i) * inputSample + dnBuffer[channel];
-
-    //         // dnBuffer[channel] = inputSample * proccessedSample;
-
-    //         // const auto rvrbOutput = 0.5f * inputSample * proccessedSample;
-
-    //         // channelData[i] = rvrbOutput;
-    //     }
-
-    //     // ..do something to the data...
-    // }
+    else if (numInChannels == 2 && numOutChannels == 2)
+    {
+        r2.processStereo(outputBlock.getChannelPointer(0),
+                         outputBlock.getChannelPointer(1),
+                         (int)numSamples);
+    }
+    else
+    {
+        jassertfalse; // invalid channel configuration
+    }
 }
 
 //==============================================================================
@@ -359,6 +329,7 @@ void ReverbProjectAudioProcessor::getStateInformation(juce::MemoryBlock &destDat
 
 void ReverbProjectAudioProcessor::setStateInformation(const void *data, int sizeInBytes)
 {
+
     auto valueTree = juce::ValueTree::readFromData(data, static_cast<size_t>(sizeInBytes));
 
     if (valueTree.isValid())
