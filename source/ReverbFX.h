@@ -1,23 +1,35 @@
+/*
+  ==============================================================================
+
+   Copyright 2023, 2024 Vitalii Voronkin
+
+   Reverb Project is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   Reverb Project is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with Simple Reverb. If not, see <http://www.gnu.org/licenses/>.
+
+  ==============================================================================
+*/
+
 #pragma once
 
-// #include <emmintrin.h>
-#include <immintrin.h>
+// #include <immintrin.h> // @TODO optimize proceesing with SIMD
 #include <JuceHeader.h>
-
-// namespace juce
-// {
 
 //==============================================================================
 /**
-    Performs a simple reverb effect on a stream of audio data.
+    Performs a reverb effect on a stream of audio data.
 
-    This is a simple stereo reverb, based on the technique and tunings used in FreeVerb.
-    Use setSampleRate() to prepare it, and then call processStereo() or processMono() to
-    apply the reverb to your audio data.
+    This is a a modified version of simple JUCE stereo reverb, based on the technique and tunings used in FreeVerb.
 
-    @see ReverbAudioSource
-
-    @tags{Audio}
 */
 class ReverbFX
 {
@@ -30,6 +42,15 @@ public:
     }
 
     //==============================================================================
+
+    // enum E_Color
+    // {
+    //     Bright,
+    //     Dark,
+    //     70s,
+    //     80s
+    // };
+
     /** Holds the parameters being used by a Reverb object. */
     struct Parameters
     {
@@ -43,7 +64,8 @@ public:
 
         // Diffusion parameters
         float diffusionFeedback = 0.5f; /**< Diffusion feedback level, 0 to 1.0 */
-        // std::array<float, numDiffusionCombs> diffusionTunings = {0.0f}; /**< Tunings for diffusion comb filters */
+
+        // E_Color color{Bright};
     };
 
     //==============================================================================
@@ -81,7 +103,7 @@ public:
 
         static const short combTunings[] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}; // (at 44100Hz)
         static const short allPassTunings[] = {556, 441, 341, 225};
-        const int stereoSpread = 23;
+        const int stereoSpread = 43;
         const int intSampleRate = (int)sampleRate;
 
         for (int i = 0; i < numCombs; ++i)
@@ -96,20 +118,37 @@ public:
             allPass[1][i].setSize((intSampleRate * (allPassTunings[i] + stereoSpread)) / 44100);
         }
 
-        const double smoothTime = 0.01;
-        damping.reset(sampleRate, smoothTime);
-        feedback.reset(sampleRate, smoothTime);
-        dryGain.reset(sampleRate, smoothTime);
-        wetGain1.reset(sampleRate, smoothTime);
-        wetGain2.reset(sampleRate, smoothTime);
-
-        const short diffusionTunings[] = {226, 337, 666, 353}; // Adjust these values based on experimentation
+        const short diffusionTunings[] = {
+            116,
+            208,
+            301,
+            353,
+            420,
+            585,
+            666,
+            750,
+            999,
+            1103,
+            1200,
+            1313,
+            1535,
+            1609,
+            1685,
+            1700,
+        }; // Adjust these values based on experimentation
 
         for (int i = 0; i < numDiffusionCombs; ++i)
         {
             diffusion[0][i].setSize((intSampleRate * diffusionTunings[i]) / 44100);
             diffusion[1][i].setSize((intSampleRate * (diffusionTunings[i] + stereoSpread)) / 44100);
         }
+
+        const double smoothTime = 0.01;
+        damping.reset(sampleRate, smoothTime);
+        feedback.reset(sampleRate, smoothTime);
+        dryGain.reset(sampleRate, smoothTime);
+        wetGain1.reset(sampleRate, smoothTime);
+        wetGain2.reset(sampleRate, smoothTime);
     }
 
     /** Clears the reverb's buffers. */
@@ -142,23 +181,23 @@ public:
             float outL = 0, outR = 0;
 
             float diffOutL = 0, diffOutR = 0;
-            const float diffFeedbck = diffusionFeedback.getNextValue(); // Adjust this value based on experimentation
+            const float diffFeedbck = 0.55f;
 
             const float damp = damping.getNextValue();
             const float feedbck = feedback.getNextValue();
-
-            // All-Pass Filters
-            for (int j = 0; j < numAllPasses; ++j)
-            {
-                outL = allPass[0][j].process(outL);
-                outR = allPass[1][j].process(outR);
-            }
 
             // Comb Filters
             for (int j = 0; j < numCombs; ++j)
             {
                 outL += comb[0][j].process(input, damp, feedbck);
                 outR += comb[1][j].process(input, damp, feedbck);
+            }
+
+            // All-Pass Filters
+            for (int j = 0; j < numAllPasses; ++j)
+            {
+                outL = allPass[0][j].process(outL);
+                outR = allPass[1][j].process(outR);
             }
 
             // Diffusion Filters
@@ -172,13 +211,16 @@ public:
             const float wet1 = wetGain1.getNextValue();
             const float wet2 = wetGain2.getNextValue();
 
-            const float combWeight = 0.6f;      // Adjust as needed
-            const float diffusionWeight = 0.4f; // Adjust as needed
+            const float WeightRatio = diffusionFeedback.getNextValue();
+
+            const float combWeight = WeightRatio;          // Adjust as needed
+            const float diffusionWeight = 1 - WeightRatio; // Adjust as needed
 
             // Weighted Summation:
             left[i] = (outL * combWeight + diffOutL * diffusionWeight) * wet1 + (outR * combWeight + diffOutR * diffusionWeight) * wet2 + left[i] * dry;
             right[i] = (outR * combWeight + diffOutR * diffusionWeight) * wet1 + (outL * combWeight + diffOutL * diffusionWeight) * wet2 + right[i] * dry;
 
+            // // No diffusion
             // left[i] = outL * wet1 + outR * wet2 + left[i] * dry;
             // right[i] = outR * wet1 + outL * wet2 + right[i] * dry;
         }
@@ -186,6 +228,7 @@ public:
     }
 
     /** Applies the reverb to a single mono channel of audio data. */
+    // For the time being mono does not use diffusion network for processing
     void processMono(float *const samples, const int numSamples) noexcept
     {
         JUCE_BEGIN_IGNORE_WARNINGS_MSVC(6011)
@@ -369,20 +412,19 @@ private:
         numCombs = 8,
         numAllPasses = 4,
         numChannels = 2,
-        numDiffusionCombs = 4
+        numDiffusionCombs = 16
     };
-
-    DiffusionFilter diffusion[numChannels][numDiffusionCombs];
 
     Parameters parameters;
     float gain;
 
+    DiffusionFilter diffusion[numChannels][numDiffusionCombs];
+
     CombFilter comb[numChannels][numCombs];
+
     AllPassFilter allPass[numChannels][numAllPasses];
 
     SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2, diffusionFeedback;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbFX)
 };
-
-// } // namespace juce

@@ -1,7 +1,20 @@
 /*
   ==============================================================================
 
-    This file contains the basic framework code for a JUCE plugin processor.
+   Copyright 2023, 2024 Vitalii Voronkin
+
+   Reverb Project is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   Reverb Project is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with Simple Reverb. If not, see <http://www.gnu.org/licenses/>.
 
   ==============================================================================
 */
@@ -18,6 +31,7 @@ namespace ParamIDs
     inline constexpr auto mix{"mix"};
     inline constexpr auto freeze{"freeze"};
     inline constexpr auto diffFeedbck{"diffFeedbck"};
+    // inline constexpr auto color{"color"};
 
 }
 
@@ -72,7 +86,7 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::diffFeedbck, 1},
                                                            ParamIDs::diffFeedbck,
-                                                           juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
+                                                           juce::NormalisableRange<float>{20.0f, 80.0f, 0.01f, 1.0f},
                                                            50.0f,
                                                            juce::String(),
                                                            juce::AudioProcessorParameter::genericParameter,
@@ -83,20 +97,16 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
                                                           ParamIDs::freeze,
                                                           false));
 
-    juce::StringArray stringArray;
-    juce::String str;
-    // for (int i = 0; i < 3; i++)
-    // {
-    //     str << (1 + i);
-    //     // str << " some Kind Of Value";
-    //     stringArray.add(str);
-    // }
+    // Choice parameter. Could be used for sound "color" selection.
+    // juce::StringArray stringArray;
+    // juce::String str;
 
-    stringArray.add(" juce::dsp::Reverb ");
-    stringArray.add(" juce::Reverb ");
-    // stringArray.add(" 3 ");
+    // stringArray.add(" dark ");
+    // stringArray.add(" bright ");
+    // stringArray.add(" 70ies ");
+    // stringArray.add(" 80ies ");
 
-    layout.add(std::make_unique<juce::AudioParameterChoice>("Reverb Version", "Reverb Version", stringArray, 0));
+    // layout.add(std::make_unique<juce::AudioParameterChoice>("color", "color", stringArray, 0));
 
     return layout;
 }
@@ -134,6 +144,14 @@ ReverbProjectAudioProcessor::ReverbProjectAudioProcessor()
     };
 
     storeBoolParam(freeze, ParamIDs::freeze);
+
+    // auto storeChoiceParam = [&apvts = this->apvts](auto &param, const auto &paramID)
+    // {
+    //     param = dynamic_cast<juce::AudioParameterChoice *>(apvts.getParameter(paramID));
+    //     jassert(param != nullptr);
+    // };
+
+    // storeChoiceParam(color, ParamIDs::color);
 }
 
 ReverbProjectAudioProcessor::~ReverbProjectAudioProcessor()
@@ -220,8 +238,6 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 #elif !MYVERS
     r2.setSampleRate(specs.sampleRate);
 #endif
-
-    // r1.prepare(specs);
 }
 
 void ReverbProjectAudioProcessor::releaseResources()
@@ -267,11 +283,12 @@ void ReverbProjectAudioProcessor::updateReverbParams()
 #if MYVERS
     params.diffusionFeedback = diffFeedbck->get() * 0.01f;
     r3.setParameters(params);
+
+    // params.color = color;
+
 #elif !MYVERS
     r2.setParameters(params);
 #endif
-
-    // r1.setParameters(params);
 }
 
 // Settings getSettings(juce::AudioProcessorValueTreeState &vts)
@@ -296,8 +313,6 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
 
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
-
-    // r1.process(ctx);
 
     const auto &inputBlock = ctx.getInputBlock();
     auto &outputBlock = ctx.getOutputBlock();

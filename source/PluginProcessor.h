@@ -1,7 +1,20 @@
 /*
   ==============================================================================
 
-    This file contains the basic framework code for a JUCE plugin processor.
+   Copyright 2023, 2024 Vitalii Voronkin
+
+   Reverb Project is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   Reverb Project is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with Simple Reverb. If not, see <http://www.gnu.org/licenses/>.
 
   ==============================================================================
 */
@@ -9,14 +22,15 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "ReverbFX.h"
+
+// @TODO remove JuceHeader and only add classes that you will need:
 // #include <juce_audio_processors/juce_audio_processors.h>
 // #include <juce_dsp/juce_dsp.h>
 // #include <juce_audio_basics/juce_audio_basics.h>
 // #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "ReverbFX.h"
-
-#define MYVERS 1
+#define MYVERS 1 // toggles between juce::reverb and my modified version, for comparasing
 
 //==============================================================================
 /**
@@ -68,8 +82,9 @@ private:
   juce::AudioParameterFloat *damp{nullptr};
   juce::AudioParameterFloat *width{nullptr};
   juce::AudioParameterFloat *mix{nullptr};
-  juce::AudioParameterFloat *diffFeedbck{nullptr};
   juce::AudioParameterBool *freeze{nullptr};
+  juce::AudioParameterFloat *diffFeedbck{nullptr};
+  // juce::AudioParameterChoice *color{nullptr};
 
   void updateReverbParams();
 
@@ -83,12 +98,7 @@ private:
   juce::Reverb r2;
 #endif
 
-  // juce::dsp::Reverb r1;
-
   juce::UndoManager undoManager;
-
-  // HeapBlock<float> buffer;
-  // std::vector<float> dnBuffer;
   //==============================================================================
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbProjectAudioProcessor)
 };
