@@ -1,5 +1,7 @@
 #pragma once
 
+// #include <emmintrin.h>
+#include <immintrin.h>
 #include <JuceHeader.h>
 
 // namespace juce
@@ -38,6 +40,10 @@ public:
         float width = 1.0f;      /**< Reverb width, 0 to 1.0, where 1.0 is very wide. */
         float freezeMode = 0.0f; /**< Freeze mode - values < 0.5 are "normal" mode, values > 0.5
                                       put the reverb into a continuous feedback loop. */
+
+        // Diffusion parameters
+        float diffusionFeedback = 0.5f; /**< Diffusion feedback level, 0 to 1.0 */
+        // std::array<float, numDiffusionCombs> diffusionTunings = {0.0f}; /**< Tunings for diffusion comb filters */
     };
 
     //==============================================================================
@@ -57,6 +63,8 @@ public:
         dryGain.setTargetValue(newParams.dryLevel * dryScaleFactor);
         wetGain1.setTargetValue(0.5f * wet * (1.0f + newParams.width));
         wetGain2.setTargetValue(0.5f * wet * (1.0f - newParams.width));
+
+        diffusionFeedback.setTargetValue(newParams.diffusionFeedback);
 
         gain = isFrozen(newParams.freezeMode) ? 0.0f : 0.015f;
         parameters = newParams;
@@ -94,6 +102,14 @@ public:
         dryGain.reset(sampleRate, smoothTime);
         wetGain1.reset(sampleRate, smoothTime);
         wetGain2.reset(sampleRate, smoothTime);
+
+        const short diffusionTunings[] = {226, 337, 666, 353}; // Adjust these values based on experimentation
+
+        for (int i = 0; i < numDiffusionCombs; ++i)
+        {
+            diffusion[0][i].setSize((intSampleRate * diffusionTunings[i]) / 44100);
+            diffusion[1][i].setSize((intSampleRate * (diffusionTunings[i] + stereoSpread)) / 44100);
+        }
     }
 
     /** Clears the reverb's buffers. */
@@ -106,6 +122,9 @@ public:
 
             for (int i = 0; i < numAllPasses; ++i)
                 allPass[j][i].clear();
+
+            for (int i = 0; i < numDiffusionCombs; ++i)
+                diffusion[j][i].clear();
         }
     }
 
@@ -122,27 +141,46 @@ public:
             const float input = (left[i] + right[i]) * gain;
             float outL = 0, outR = 0;
 
+            float diffOutL = 0, diffOutR = 0;
+            const float diffFeedbck = diffusionFeedback.getNextValue(); // Adjust this value based on experimentation
+
             const float damp = damping.getNextValue();
             const float feedbck = feedback.getNextValue();
 
-            for (int j = 0; j < numCombs; ++j) // accumulate the comb filters in parallel
+            // All-Pass Filters
+            for (int j = 0; j < numAllPasses; ++j)
+            {
+                outL = allPass[0][j].process(outL);
+                outR = allPass[1][j].process(outR);
+            }
+
+            // Comb Filters
+            for (int j = 0; j < numCombs; ++j)
             {
                 outL += comb[0][j].process(input, damp, feedbck);
                 outR += comb[1][j].process(input, damp, feedbck);
             }
 
-            for (int j = 0; j < numAllPasses; ++j) // run the allpass filters in series
+            // Diffusion Filters
+            for (int j = 0; j < numDiffusionCombs; ++j)
             {
-                outL = allPass[0][j].process(outL);
-                outR = allPass[1][j].process(outR);
+                diffOutL += diffusion[0][j].process(input, diffFeedbck);
+                diffOutR += diffusion[1][j].process(input, diffFeedbck);
             }
 
             const float dry = dryGain.getNextValue();
             const float wet1 = wetGain1.getNextValue();
             const float wet2 = wetGain2.getNextValue();
 
-            left[i] = outL * wet1 + outR * wet2 + left[i] * dry;
-            right[i] = outR * wet1 + outL * wet2 + right[i] * dry;
+            const float combWeight = 0.6f;      // Adjust as needed
+            const float diffusionWeight = 0.4f; // Adjust as needed
+
+            // Weighted Summation:
+            left[i] = (outL * combWeight + diffOutL * diffusionWeight) * wet1 + (outR * combWeight + diffOutR * diffusionWeight) * wet2 + left[i] * dry;
+            right[i] = (outR * combWeight + diffOutR * diffusionWeight) * wet1 + (outL * combWeight + diffOutL * diffusionWeight) * wet2 + right[i] * dry;
+
+            // left[i] = outL * wet1 + outR * wet2 + left[i] * dry;
+            // right[i] = outR * wet1 + outL * wet2 + right[i] * dry;
         }
         JUCE_END_IGNORE_WARNINGS_MSVC
     }
@@ -197,6 +235,48 @@ private:
         damping.setTargetValue(dampingToUse);
         feedback.setTargetValue(roomSizeToUse);
     }
+
+private:
+    //==============================================================================
+    class DiffusionFilter
+    {
+    public:
+        DiffusionFilter() noexcept {}
+
+        void setSize(const int size)
+        {
+            if (size != bufferSize)
+            {
+                bufferIndex = 0;
+                buffer.malloc(size);
+                bufferSize = size;
+            }
+
+            clear();
+        }
+
+        void clear() noexcept
+        {
+            buffer.clear((size_t)bufferSize);
+        }
+
+        float process(const float input, const float feedbackLevel) noexcept
+        {
+            const float output = buffer[bufferIndex];
+            float temp = input + (output * feedbackLevel);
+
+            // JUCE_UNDENORMALISE(temp);
+            buffer[bufferIndex] = temp;
+            bufferIndex = (bufferIndex + 1) % bufferSize;
+            return output;
+        }
+
+    private:
+        HeapBlock<float> buffer;
+        int bufferSize = 0, bufferIndex = 0;
+
+        JUCE_DECLARE_NON_COPYABLE(DiffusionFilter)
+    };
 
     //==============================================================================
     class CombFilter
@@ -288,8 +368,11 @@ private:
     {
         numCombs = 8,
         numAllPasses = 4,
-        numChannels = 2
+        numChannels = 2,
+        numDiffusionCombs = 4
     };
+
+    DiffusionFilter diffusion[numChannels][numDiffusionCombs];
 
     Parameters parameters;
     float gain;
@@ -297,7 +380,7 @@ private:
     CombFilter comb[numChannels][numCombs];
     AllPassFilter allPass[numChannels][numAllPasses];
 
-    SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2;
+    SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2, diffusionFeedback;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbFX)
 };

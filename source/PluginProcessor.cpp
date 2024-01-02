@@ -17,6 +17,7 @@ namespace ParamIDs
     inline constexpr auto width{"width"};
     inline constexpr auto mix{"mix"};
     inline constexpr auto freeze{"freeze"};
+    inline constexpr auto diffFeedbck{"diffFeedbck"};
 
 }
 
@@ -62,6 +63,15 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::mix, 1},
                                                            ParamIDs::mix,
+                                                           juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
+                                                           50.0f,
+                                                           juce::String(),
+                                                           juce::AudioProcessorParameter::genericParameter,
+                                                           percent,
+                                                           nullptr));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::diffFeedbck, 1},
+                                                           ParamIDs::diffFeedbck,
                                                            juce::NormalisableRange<float>{0.0f, 100.0f, 0.01f, 1.0f},
                                                            50.0f,
                                                            juce::String(),
@@ -115,6 +125,7 @@ ReverbProjectAudioProcessor::ReverbProjectAudioProcessor()
     storeFloatParam(damp, ParamIDs::damp);
     storeFloatParam(width, ParamIDs::width);
     storeFloatParam(mix, ParamIDs::mix);
+    storeFloatParam(diffFeedbck, ParamIDs::diffFeedbck);
 
     auto storeBoolParam = [&apvts = this->apvts](auto &param, const auto &paramID)
     {
@@ -206,7 +217,7 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 #if MYVERS
     r3.setSampleRate(sampleRate);
 
-#elif JUCEVERS
+#elif !MYVERS
     r2.setSampleRate(specs.sampleRate);
 #endif
 
@@ -254,8 +265,9 @@ void ReverbProjectAudioProcessor::updateReverbParams()
     params.freezeMode = freeze->get();
 
 #if MYVERS
+    params.diffusionFeedback = diffFeedbck->get() * 0.01f;
     r3.setParameters(params);
-#elif JUCEVERS
+#elif !MYVERS
     r2.setParameters(params);
 #endif
 
@@ -304,7 +316,7 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     {
 #if MYVERS
         r3.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
-#elif JUCEVERS
+#elif !MYVERS
         // r2.processMono(outputBlock.getChannelPointer(0), (int)numSamples);
 #endif
     }
@@ -314,10 +326,10 @@ void ReverbProjectAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         r3.processStereo(outputBlock.getChannelPointer(0),
                          outputBlock.getChannelPointer(1),
                          (int)numSamples);
-#elif JUCEVERS
-        // r2.processStereo(outputBlock.getChannelPointer(0),
-        //                  outputBlock.getChannelPointer(1),
-        //                  (int)numSamples);
+#elif !MYVERS
+        r2.processStereo(outputBlock.getChannelPointer(0),
+                         outputBlock.getChannelPointer(1),
+                         (int)numSamples);
 #endif
     }
     else

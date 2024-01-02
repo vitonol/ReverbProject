@@ -17,20 +17,6 @@
 #include "ReverbFX.h"
 
 #define MYVERS 1
-#define JUCEVERS 0
-
-// enum EfxOption
-// {
-//   R1,
-//   R2
-// };
-
-// struct Settings
-// {
-//   EfxOption R{R1};
-// };
-
-// Settings getSettings(juce::AudioProcessorValueTreeState &vts);
 
 //==============================================================================
 /**
@@ -76,14 +62,13 @@ public:
   void setStateInformation(const void *data, int sizeInBytes) override;
 
 private:
-  void ReloadFX();
-
   juce::AudioProcessorValueTreeState apvts;
 
   juce::AudioParameterFloat *size{nullptr};
   juce::AudioParameterFloat *damp{nullptr};
   juce::AudioParameterFloat *width{nullptr};
   juce::AudioParameterFloat *mix{nullptr};
+  juce::AudioParameterFloat *diffFeedbck{nullptr};
   juce::AudioParameterBool *freeze{nullptr};
 
   void updateReverbParams();
@@ -92,7 +77,7 @@ private:
   using Parameters = ReverbFX::Parameters;
   Parameters params;
   ReverbFX r3;
-#elif JUCEVERS
+#elif !MYVERS
 
   juce::dsp::Reverb::Parameters params;
   juce::Reverb r2;
