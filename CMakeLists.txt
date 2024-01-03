@@ -19,7 +19,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 # Used for the MacOS bundle name and Installers
-set(COMPANY_NAME "vitnol")
+set(COMPANY_NAME "vitonol")
 
 # Used for the MacOS bundle identifier (and signing)
 set(BUNDLE_ID "com.vitonol.vitonol")
