@@ -31,6 +31,9 @@ namespace ParamIDs
     inline constexpr auto mix{"mix"};
     inline constexpr auto freeze{"freeze"};
     inline constexpr auto diffFeedbck{"diffFeedbck"};
+    inline constexpr auto highCutFreq{"highCutFreq"};
+    inline constexpr auto lowCutFreq{"lowCutFreq"};
+
     // inline constexpr auto color{"color"};
 
 }
@@ -47,6 +50,16 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createParamLayout()
         else
             return juce::String(val, 0) + "%";
     };
+
+    // layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::lowCutFreq, 1},
+    //                                                        ParamIDs::lowCutFreq,
+    //                                                        juce::NormalisableRange<float>{20.f, 20000.f, 0.1f, 0.2f},
+    //                                                        40.f));
+
+    // layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::highCutFreq, 1},
+    //                                                        ParamIDs::highCutFreq,
+    //                                                        juce::NormalisableRange<float>{20.f, 20000.f, 0.1f, 0.2f},
+    //                                                        12000.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{ParamIDs::size, 1},
                                                            ParamIDs::size,
@@ -136,6 +149,8 @@ ReverbProjectAudioProcessor::ReverbProjectAudioProcessor()
     storeFloatParam(width, ParamIDs::width);
     storeFloatParam(mix, ParamIDs::mix);
     storeFloatParam(diffFeedbck, ParamIDs::diffFeedbck);
+    storeFloatParam(LowCutFreq, ParamIDs::lowCutFreq);
+    storeFloatParam(highCutFreq, ParamIDs::highCutFreq);
 
     auto storeBoolParam = [&apvts = this->apvts](auto &param, const auto &paramID)
     {
@@ -233,7 +248,7 @@ void ReverbProjectAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     specs.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
 
 #if MYVERS
-    r3.setSampleRate(sampleRate);
+    r3.setSampleRate(sampleRate, samplesPerBlock);
 
 #elif !MYVERS
     r2.setSampleRate(specs.sampleRate);
@@ -279,6 +294,9 @@ void ReverbProjectAudioProcessor::updateReverbParams()
     params.wetLevel = mix->get() * 0.01f;
     params.dryLevel = 1.0f - mix->get() * 0.01f;
     params.freezeMode = freeze->get();
+
+    params.highCutFreq = highCutFreq->get();
+    params.lowCutFreq = LowCutFreq->get();
 
 #if MYVERS
     params.diffusionFeedback = diffFeedbck->get() * 0.01f;

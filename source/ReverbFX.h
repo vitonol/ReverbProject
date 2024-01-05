@@ -38,7 +38,9 @@ public:
     ReverbFX()
     {
         setParameters(Parameters());
-        setSampleRate(44100.0);
+        setSampleRate(44100.0, 128);
+        lowPFilter.setCutoffFrequency(5.f);
+        highPFilter.setCutoffFrequency(22000.f);
     }
 
     //==============================================================================
@@ -65,6 +67,9 @@ public:
         // Diffusion parameters
         float diffusionFeedback = 0.5f; /**< Diffusion feedback level, 0 to 1.0 */
 
+        float lowCutFreq = 40.f;
+        float highCutFreq = 12000.f;
+
         // E_Color color{Bright};
     };
 
@@ -88,6 +93,9 @@ public:
 
         diffusionFeedback.setTargetValue(newParams.diffusionFeedback);
 
+        lowCutFreq.setTargetValue(newParams.lowCutFreq);
+        highCutFreq.setTargetValue(newParams.highCutFreq);
+
         gain = isFrozen(newParams.freezeMode) ? 0.0f : 0.015f;
         parameters = newParams;
         updateDamping();
@@ -97,27 +105,24 @@ public:
     /** Sets the sample rate that will be used for the reverb.
         You must call this before the process methods, in order to tell it the correct sample rate.
     */
-    void setSampleRate(const double sampleRate)
+    void setSampleRate(const double sampleRate, int bufferSize)
     {
         jassert(sampleRate > 0);
 
-        static const short combTunings[] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}; // (at 44100Hz)
-        static const short allPassTunings[] = {556, 441, 341, 225};
+        highPFilter.setHighpass(true);
+        lowPFilter.setHighpass(false);
+
+        highPFilter.setSamplingRate(sampleRate);
+        lowPFilter.setSamplingRate(sampleRate);
+
         const int stereoSpread = 43;
         const int intSampleRate = (int)sampleRate;
 
-        for (int i = 0; i < numCombs; ++i)
-        {
-            comb[0][i].setSize((intSampleRate * combTunings[i]) / 44100);
-            comb[1][i].setSize((intSampleRate * (combTunings[i] + stereoSpread)) / 44100);
-        }
+        lowPFilter.setSize(bufferSize);
+        highPFilter.setSize(bufferSize);
 
-        for (int i = 0; i < numAllPasses; ++i)
-        {
-            allPass[0][i].setSize((intSampleRate * allPassTunings[i]) / 44100);
-            allPass[1][i].setSize((intSampleRate * (allPassTunings[i] + stereoSpread)) / 44100);
-        }
-
+        static const short combTunings[] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}; // (at 44100Hz)
+        static const short allPassTunings[] = {556, 441, 341, 225};
         const short diffusionTunings[] = {
             116,
             208,
@@ -131,11 +136,23 @@ public:
             1103,
             1200,
             1313,
-            1535,
-            1609,
-            1685,
-            1700,
+            1355,
+            1909,
+            2185,
+            2700,
         }; // Adjust these values based on experimentation
+
+        for (int i = 0; i < numCombs; ++i)
+        {
+            comb[0][i].setSize((intSampleRate * combTunings[i]) / 44100);
+            comb[1][i].setSize((intSampleRate * (combTunings[i] + stereoSpread)) / 44100);
+        }
+
+        for (int i = 0; i < numAllPasses; ++i)
+        {
+            allPass[0][i].setSize((intSampleRate * allPassTunings[i]) / 44100);
+            allPass[1][i].setSize((intSampleRate * (allPassTunings[i] + stereoSpread)) / 44100);
+        }
 
         for (int i = 0; i < numDiffusionCombs; ++i)
         {
@@ -149,6 +166,9 @@ public:
         dryGain.reset(sampleRate, smoothTime);
         wetGain1.reset(sampleRate, smoothTime);
         wetGain2.reset(sampleRate, smoothTime);
+        diffusionFeedback.reset(sampleRate, smoothTime);
+        lowCutFreq.reset(sampleRate, smoothTime);
+        highCutFreq.reset(sampleRate, smoothTime);
     }
 
     /** Clears the reverb's buffers. */
@@ -164,6 +184,9 @@ public:
 
             for (int i = 0; i < numDiffusionCombs; ++i)
                 diffusion[j][i].clear();
+
+            highPFilter.clear();
+            lowPFilter.clear();
         }
     }
 
@@ -185,6 +208,17 @@ public:
 
             const float damp = damping.getNextValue();
             const float feedbck = feedback.getNextValue();
+
+            // const float HCut = highCutFreq.getNextValue();
+            // const float LCut = lowCutFreq.getNextValue();
+
+            // lowPFilter.setCutoffFrequency(HCut);
+            // highPFilter.setCutoffFrequency(LCut);
+
+            // Apply low and high pass filters
+
+            outL += (lowPFilter.process(left[i]) + highPFilter.process(left[i])) * gain;
+            outR += (lowPFilter.process(right[i]) + highPFilter.process(right[i])) * gain;
 
             // Comb Filters
             for (int j = 0; j < numCombs; ++j)
@@ -406,11 +440,89 @@ private:
         JUCE_DECLARE_NON_COPYABLE(AllPassFilter)
     };
 
+    class SimpleFilter
+    {
+    public:
+        SimpleFilter()
+        {
+            // setHighpass(bhighpass);
+        }
+
+        void clear() noexcept
+        {
+            buffer.clear((size_t)bufferSize);
+        }
+
+        void setSize(const int size)
+        {
+            if (size != bufferSize)
+            {
+                bufferIndex = 0;
+                buffer.malloc(size);
+                bufferSize = size;
+            }
+
+            clear();
+        }
+
+        void setHighpass(bool bHighPass)
+        {
+            this->bhighpass = bHighPass;
+        }
+
+        void setSamplingRate(double samplingRate)
+        {
+            this->samplingRate = samplingRate;
+        }
+
+        void setCutoffFrequency(float cutoffFrequency)
+        {
+            this->cutoffFrequency = cutoffFrequency;
+        }
+
+        float process(const float input)
+        {
+            constexpr auto PI = 3.14159265359f;
+            auto sign = bhighpass ? -1.f : 1.f;
+
+            // Calculate filter coefficients
+            const auto tan = std::tan(PI * cutoffFrequency / samplingRate);
+            const auto a1 = (tan - 1.f) / (tan + 1.f);
+
+            // Apply the one-pole IIR high-pass or low-pass filter
+            const auto filteredInput = a1 * input + buffer[bufferIndex];
+
+            // Update the buffer for the next sample
+            buffer[bufferIndex] = input - a1 * filteredInput;
+
+            const auto filterOutput = 0.5f * (input + sign * filteredInput);
+            // Calculate the filter output
+            return filterOutput;
+            /*
+            const float bufferedValue = buffer[bufferIndex];
+            float temp = input + (bufferedValue * 0.5f);
+            JUCE_UNDENORMALISE(temp);
+            buffer[bufferIndex] = temp;
+            bufferIndex = (bufferIndex + 1) % bufferSize;
+            return bufferedValue - input;
+            */
+        }
+
+    private:
+        // std::vector<float> dnBuffer;
+        HeapBlock<float> buffer;
+        bool bhighpass;
+        double samplingRate;
+        float cutoffFrequency;
+        int bufferSize = 0, bufferIndex = 0;
+        JUCE_DECLARE_NON_COPYABLE(SimpleFilter)
+    };
+
     //==============================================================================
     enum
     {
         numCombs = 8,
-        numAllPasses = 4,
+        numAllPasses = 6,
         numChannels = 2,
         numDiffusionCombs = 16
     };
@@ -418,13 +530,15 @@ private:
     Parameters parameters;
     float gain;
 
+    SimpleFilter highPFilter, lowPFilter;
+
     DiffusionFilter diffusion[numChannels][numDiffusionCombs];
 
     CombFilter comb[numChannels][numCombs];
 
     AllPassFilter allPass[numChannels][numAllPasses];
 
-    SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2, diffusionFeedback;
+    SmoothedValue<float> damping, feedback, dryGain, wetGain1, wetGain2, diffusionFeedback, highCutFreq, lowCutFreq;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbFX)
 };
