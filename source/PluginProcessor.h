@@ -84,10 +84,6 @@ private:
   juce::AudioParameterFloat *mix{nullptr};
   juce::AudioParameterBool *freeze{nullptr};
   juce::AudioParameterFloat *diffFeedbck{nullptr};
-
-  juce::AudioParameterFloat *highCutFreq{nullptr};
-  juce::AudioParameterFloat *LowCutFreq{nullptr};
-
   // juce::AudioParameterChoice *color{nullptr};
 
   void updateReverbParams();
